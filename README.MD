@@ -5,7 +5,7 @@ you to save pages in another folder than the browser's download folder.
 
 It uses the
 [Native Messaging API](https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/Native_messaging)
-to communicate with [SingleFile](https://github.com/gildas-lormeau/SingleFile).
+to communicate with [SingleFile](https://www.getsinglefile.com).
 
 ## Install
 
