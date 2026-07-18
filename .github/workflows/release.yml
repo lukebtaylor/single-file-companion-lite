@@ -12,8 +12,11 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  check:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      exists: ${{ steps.check.outputs.exists }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -34,42 +37,83 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+  build:
+    needs: check
+    if: needs.check.outputs.exists == 'false'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - dir: linux
+            target: x86_64-unknown-linux-gnu
+            ext: ""
+          - dir: win
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+          - dir: mac
+            target: x86_64-apple-darwin
+            ext: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Set up Deno
-        if: steps.check.outputs.exists == 'false'
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
 
       - name: Install zip
-        if: steps.check.outputs.exists == 'false'
         run: sudo apt-get update && sudo apt-get install -y zip
 
-      - name: Build binaries and installer bundles
-        if: steps.check.outputs.exists == 'false'
-        run: ./build.sh
+      - name: Compile binary for ${{ matrix.dir }}
+        run: |
+          deno compile --allow-read --allow-write \
+            --target ${{ matrix.target }} \
+            --output ./src/${{ matrix.dir }}/singlefile_companion_lite${{ matrix.ext }} \
+            ./src/index.js
+
+      - name: Zip installer bundles for ${{ matrix.dir }}
+        run: |
+          mkdir -p install
+          for browser in chromium firefox; do
+            zip -j "install/${browser}-${{ matrix.dir }}.zip" \
+              "./src/${{ matrix.dir }}/singlefile_companion_lite${{ matrix.ext }}" \
+              ./src/options.json \
+              ./src/${{ matrix.dir }}/${browser}/*
+          done
+
+      - name: Upload ${{ matrix.dir }} bundles
+        uses: actions/upload-artifact@v7
+        with:
+          name: bundles-${{ matrix.dir }}
+          path: install/*.zip
+          retention-days: 14
+
+  release:
+    needs: [check, build]
+    if: needs.check.outputs.exists == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all platform bundles
+        uses: actions/download-artifact@v8
+        with:
+          path: install
+          pattern: bundles-*
+          merge-multiple: true
 
       - name: Verify expected bundles exist
-        if: steps.check.outputs.exists == 'false'
         run: |
           set -e
           for f in chromium-linux chromium-mac chromium-win firefox-linux firefox-mac firefox-win; do
             test -f "install/${f}.zip" || { echo "Missing install/${f}.zip"; exit 1; }
           done
 
-      - name: Upload build artifacts (every run this actually builds)
-        if: steps.check.outputs.exists == 'false'
-        uses: actions/upload-artifact@v7
-        with:
-          name: installer-bundles
-          path: install/*.zip
-          retention-days: 14
-
       - name: Create tag and GitHub Release
-        if: steps.check.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" install/*.zip \
-            --title "${{ steps.version.outputs.tag }}" \
+          gh release create "${{ needs.check.outputs.tag }}" install/*.zip \
+            --title "${{ needs.check.outputs.tag }}" \
             --target "${{ github.sha }}" \
+            --repo "${{ github.repository }}" \
             --generate-notes

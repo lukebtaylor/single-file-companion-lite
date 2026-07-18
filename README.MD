@@ -9,7 +9,7 @@ to communicate with [SingleFile](https://www.getsinglefile.com).
 
 ## Install
 
-Binaries are no longer committed to this repository. Every tagged release is built from source by [GitHub Actions](.github/workflows/release.yml) and published as release assets, so what you download is traceable to a specific commit and build log instead of an untracked binary blob in git history.
+Every release is built from source by [GitHub Actions](.github/workflows/release.yml) - a matrix job compiles each platform in parallel and a final job publishes the results - so what you download is traceable to a specific commit and build log.
 
 - Grab the zip file corresponding to your OS and your browser from the [latest release](../../releases/latest):
 
@@ -51,5 +51,8 @@ the entries you can edit:
 Releases are driven entirely by `package.json`'s `version` field — no manual tagging, no separate version file to keep in sync.
 
 1. Bump `version` in `package.json` (e.g. `0.0.1` → `0.0.2`) and merge that change to `main` (normal PR, same as any other change).
-2. [`.github/workflows/release.yml`](.github/workflows/release.yml) triggers on any push to `main` that touches `package.json`, checks whether a release for that version already exists, and if not: builds the binaries, zips the installer bundles, tags the commit `v<version>`, and publishes a GitHub Release with all 6 bundles attached — all automatically.
-3. Pushing to `main` without changing `version` does nothing (the existing-release check short-circuits the job before it builds anything), so routine commits don't trigger spurious releases.
+2. [`.github/workflows/release.yml`](.github/workflows/release.yml) triggers on any push to `main` that touches `package.json`:
+   - `check` job reads the version and checks whether that release already exists.
+   - `build` job runs as a matrix - one parallel job per OS (linux/mac/win) - each compiling its binary via `deno compile --target ...` and zipping both browser installer bundles for that OS.
+   - `release` job downloads all three matrix bundles, verifies all six are present, tags the commit `v<version>`, and publishes a GitHub Release with them attached.
+3. Pushing to `main` without changing `version` does nothing (the existing-release check short-circuits before anything builds), so routine commits don't trigger spurious releases.
