@@ -26,10 +26,13 @@
 import { resolve, parse, relative } from "@std/path";
 
 const BASE_PATH = ".";
-const BUFFER_SIZE = 1024 * 512;
 const METHOD_SAVE = "save";
 const DOWNLOADS_PATH = "./WebArchives/";
 const OPTIONS_FILE_PATH = "./options.json";
+// Native messaging length header: 4 bytes, native byte order. Every target
+// this project ships for (linux-gnu/win-msvc/darwin, all x86_64) is
+// little-endian, so we read it as such explicitly below.
+const HEADER_SIZE = 4;
 
 interface Options {
 	savePath?: string;
@@ -68,23 +71,38 @@ async function parseOptions(): Promise<Options> {
 	}
 }
 
-async function parseMessage(): Promise<Message | undefined> {
-	const messageSizeBuffer = new Uint32Array(1);
-	await Deno.stdin.read(messageSizeBuffer);
-	const messageSize = messageSizeBuffer[0];
-	const messageBuffer = new Uint8Array(messageSize);
-	const chunk = new Uint8Array(BUFFER_SIZE);
-	let result: number | null, bytesRead = 0;
-	do {
-		result = await Deno.stdin.read(chunk);
-		if (result) {
-			messageBuffer.set(chunk.slice(0, result), bytesRead);
-			bytesRead += result;
+// Deno.stdin.read() may return fewer bytes than the buffer it's given - a
+// single call is not guaranteed to fill it, especially over the pipes
+// native messaging uses (this was the root cause of saves silently doing
+// nothing: a short read on the 4-byte length header produced a garbage or
+// zero message size, so the whole message was dropped without error).
+// This loops until the requested number of bytes is read, or the stream
+// ends early, in which case it returns null instead of a truncated buffer.
+async function readExact(size: number): Promise<Uint8Array | null> {
+	const buffer = new Uint8Array(size);
+	let bytesRead = 0;
+	while (bytesRead < size) {
+		const result = await Deno.stdin.read(buffer.subarray(bytesRead));
+		if (result === null) {
+			// stdin closed before we received everything we expected
+			return null;
 		}
-	} while (result && bytesRead < messageSize);
-	if (bytesRead == messageSize) {
-		return JSON.parse(new TextDecoder().decode(messageBuffer)) as Message;
+		bytesRead += result;
 	}
+	return buffer;
+}
+
+async function parseMessage(): Promise<Message | undefined> {
+	const headerBuffer = await readExact(HEADER_SIZE);
+	if (!headerBuffer) {
+		return undefined;
+	}
+	const messageSize = new DataView(headerBuffer.buffer, headerBuffer.byteOffset, headerBuffer.byteLength).getUint32(0, true);
+	const messageBuffer = await readExact(messageSize);
+	if (!messageBuffer) {
+		return undefined;
+	}
+	return JSON.parse(new TextDecoder().decode(messageBuffer)) as Message;
 }
 
 async function savePage(pageData: PageData, options: Options): Promise<void> {
