@@ -23,7 +23,7 @@
  *   Source.
  */
 
-import { resolve, parse, relative } from "@std/path";
+import { resolve, parse, relative, isAbsolute } from "@std/path";
 
 const BASE_PATH = ".";
 const METHOD_SAVE = "save";
@@ -106,16 +106,27 @@ async function parseMessage(): Promise<Message | undefined> {
 }
 
 async function savePage(pageData: PageData, options: Options): Promise<void> {
-	const fileDirectory = parse(pageData.filename).dir;
-	const basePath = resolve(BASE_PATH, options.savePath || DOWNLOADS_PATH, fileDirectory);
+	const savePath = resolve(BASE_PATH, options.savePath || DOWNLOADS_PATH);
+	const targetPath = resolve(savePath, pageData.filename);
+	// pageData.filename comes from the browser extension (ultimately derived
+	// from the page's title/URL), not from anything this program controls.
+	// Nothing upstream of this guarantees it can't contain "../" segments,
+	// and this process runs with unsandboxed --allow-read --allow-write, so
+	// refuse to write anywhere that resolves outside the configured
+	// savePath rather than trusting the filename as-is.
+	const relativeToSavePath = relative(savePath, targetPath);
+	if (relativeToSavePath.startsWith("..") || isAbsolute(relativeToSavePath)) {
+		throw new Error(`Refusing to save "${pageData.filename}": it resolves outside of the configured save path`);
+	}
+	const fileDirectory = parse(targetPath).dir;
 	// Deno.mkdir({ recursive: true }) does not throw if the directory already
 	// exists, so there is nothing benign left to swallow here - any error
 	// (permission denied, a path segment that's too long, an invalid
 	// character, etc.) is real and must propagate to handleError() instead
 	// of being silently discarded, otherwise the save just does nothing with
 	// no feedback (see #6: long filenames failing silently).
-	await Deno.mkdir(basePath, { recursive: true });
-	await Deno.writeTextFile(resolve(basePath, relative(fileDirectory, pageData.filename)), pageData.content);
+	await Deno.mkdir(fileDirectory, { recursive: true });
+	await Deno.writeTextFile(targetPath, pageData.content);
 }
 
 async function handleError(error: Error, options: Options): Promise<void> {
