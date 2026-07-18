@@ -48,9 +48,14 @@ copy that sits in the same folder you unzipped the release into and ran
 anywhere in the browser's own profile or extension folder, and **not** the
 `src/options.json` in this source repo either (that copy is only a template -
 it gets bundled into the release zips at build time, but editing it after
-the fact has no effect on an already-installed instance). Chrome and Firefox
-both start native messaging hosts with their working directory set to the
-install folder, which is also why the paths below are relative to it.
+the fact has no effect on an already-installed instance).
+
+`options.json` and any relative `savePath`/`errorFilePath` inside it are
+always resolved against the folder the `singlefile_companion_lite` binary
+itself lives in, regardless of what working directory the browser happens to
+launch it with - this doesn't rely on Chrome/Firefox's documented (but not
+always reliable in practice) behavior of setting that working directory to
+the binary's folder.
 
 Edit it with any text editor and save - there's no install step to re-run and
 no need to restart the browser. Each save spawns a fresh instance of the

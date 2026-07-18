@@ -274,6 +274,55 @@ Deno.test("handleError still sends a response even if writing errorFilePath itse
 		assert.ok(String(body.error).includes("boom"));
 	}));
 
+// Regression coverage for the actual bug report: an absolute savePath kept
+// producing files in the default "~/WebArchives" location instead. That's
+// exactly what you'd see if options.json lookup silently fell back to {}
+// because the process's cwd wasn't actually the install folder (browsers'
+// documented native-messaging cwd behavior doesn't reliably hold), and
+// DOWNLOADS_PATH then resolved against cwd instead. These three prove
+// parseOptions/savePage/handleError all resolve against an explicit
+// basePath argument, not whatever the process's cwd happens to be -
+// deliberately *not* chdir-ing, so a bug that silently fell back to
+// cwd-relative resolution would make these fail.
+Deno.test("parseOptions resolves options.json against basePath, not cwd", async () => {
+	const dir = await Deno.makeTempDir();
+	try {
+		await Deno.writeTextFile(join(dir, "options.json"), JSON.stringify({ savePath: "./x/" }));
+		const options = await parseOptions(dir);
+		assert.equal(options.savePath, "./x/");
+	} finally {
+		await Deno.remove(dir, { recursive: true });
+	}
+});
+
+Deno.test("savePage resolves a relative savePath against basePath, not cwd", async () => {
+	const dir = await Deno.makeTempDir();
+	try {
+		const options: Options = { savePath: "./out/" };
+		await savePage({ filename: "page.html", content: "hi" }, options, dir);
+		const written = await Deno.readTextFile(join(dir, "out", "page.html"));
+		assert.equal(written, "hi");
+	} finally {
+		await Deno.remove(dir, { recursive: true });
+	}
+});
+
+Deno.test("processMessage threads basePath through to savePage, independent of cwd", async () => {
+	const dir = await Deno.makeTempDir();
+	try {
+		const payload = encodeMessage({ method: "save", pageData: { filename: "page.html", content: "hi" } });
+		const reader = bufferReader(payload);
+		const options: Options = { savePath: "./out/" };
+		const { writer, chunks } = collectingWriter();
+		await processMessage(reader, options, writer, dir);
+		const written = await Deno.readTextFile(join(dir, "out", "page.html"));
+		assert.equal(written, "hi");
+		assert.equal(chunks.length, 2);
+	} finally {
+		await Deno.remove(dir, { recursive: true });
+	}
+});
+
 Deno.test("handleError falls back to console.error when errorFilePath is unset", async () => {
 	const options: Options = {};
 	const originalConsoleError = console.error;

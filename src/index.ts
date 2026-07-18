@@ -23,9 +23,27 @@
  *   Source.
  */
 
-import { resolve, parse, relative, isAbsolute } from "node:path";
+import { resolve, parse, relative, isAbsolute, dirname } from "node:path";
 
-const BASE_PATH = ".";
+// Every path in this file that isn't already absolute (options.json itself,
+// and any relative savePath/errorFilePath inside it) is resolved against
+// this. It used to be "." - i.e. whatever the process's current working
+// directory happens to be. Chrome's own native-messaging docs say that's
+// set to the binary's own folder, but that assumption doesn't reliably hold
+// in practice: a user reported a correctly-configured absolute savePath
+// still producing files in "~/WebArchives" - the default relative path
+// resolved against the caller's cwd instead of this binary's folder - while
+// invoking the exact same binary by hand from its own folder worked
+// correctly (confirming options.json wasn't even being found: falling back
+// to {} and then to DOWNLOADS_PATH resolved against cwd=$HOME reproduces
+// exactly "~/WebArchives"). Deriving this from the running executable's own
+// path instead of cwd removes the assumption entirely: wherever the browser
+// launches this process *from*, options.json and relative paths inside it
+// are always resolved next to the binary itself.
+function defaultBasePath(): string {
+	return dirname(Deno.execPath());
+}
+
 const METHOD_SAVE = "save";
 const DOWNLOADS_PATH = "./WebArchives/";
 const OPTIONS_FILE_PATH = "./options.json";
@@ -66,8 +84,9 @@ if (import.meta.main) {
 }
 
 async function main(): Promise<void> {
-	const options = await parseOptions();
-	await processMessage(Deno.stdin, options, Deno.stdout);
+	const basePath = defaultBasePath();
+	const options = await parseOptions(basePath);
+	await processMessage(Deno.stdin, options, Deno.stdout, basePath);
 }
 
 // SingleFile's companion.js only tolerates a host that exits without ever
@@ -81,21 +100,21 @@ async function main(): Promise<void> {
 // every path - success included - sidesteps that entirely: SingleFile only
 // throws if the response has a truthy `.error`, so any response without one
 // reads as success regardless of how a given browser phrases a clean exit.
-export async function processMessage(reader: Reader, options: Options, output: Writer): Promise<void> {
+export async function processMessage(reader: Reader, options: Options, output: Writer, basePath = "."): Promise<void> {
 	try {
 		const message = await parseMessage(reader);
 		if (message && message.method == METHOD_SAVE) {
-			await savePage(message.pageData, options);
+			await savePage(message.pageData, options, basePath);
 			await writeResponse({}, output);
 		}
 	} catch (error) {
-		await handleError(error as Error, options, output);
+		await handleError(error as Error, options, output, basePath);
 	}
 }
 
-export async function parseOptions(): Promise<Options> {
+export async function parseOptions(basePath = "."): Promise<Options> {
 	try {
-		const options = JSON.parse(await Deno.readTextFile(resolve(BASE_PATH, OPTIONS_FILE_PATH))) as Options;
+		const options = JSON.parse(await Deno.readTextFile(resolve(basePath, OPTIONS_FILE_PATH))) as Options;
 		if (options.savePath) {
 			options.savePath = expandHome(options.savePath);
 		}
@@ -159,8 +178,8 @@ export async function parseMessage(reader: Reader = Deno.stdin): Promise<Message
 	return JSON.parse(new TextDecoder().decode(messageBuffer)) as Message;
 }
 
-export async function savePage(pageData: PageData, options: Options): Promise<void> {
-	const savePath = resolve(BASE_PATH, options.savePath || DOWNLOADS_PATH);
+export async function savePage(pageData: PageData, options: Options, basePath = "."): Promise<void> {
+	const savePath = resolve(basePath, options.savePath || DOWNLOADS_PATH);
 	const targetPath = resolve(savePath, pageData.filename);
 	// pageData.filename comes from the browser extension (ultimately derived
 	// from the page's title/URL), not from anything this program controls.
@@ -183,11 +202,11 @@ export async function savePage(pageData: PageData, options: Options): Promise<vo
 	await Deno.writeTextFile(targetPath, pageData.content);
 }
 
-export async function handleError(error: Error, options: Options, output: Writer = Deno.stdout): Promise<void> {
+export async function handleError(error: Error, options: Options, output: Writer = Deno.stdout, basePath = "."): Promise<void> {
 	if (options.errorFilePath) {
 		const message = error.message + "\n" + error.stack + "\n";
 		try {
-			const errorFilePath = resolve(BASE_PATH, options.errorFilePath);
+			const errorFilePath = resolve(basePath, options.errorFilePath);
 			// Unlike savePage(), this never created errorFilePath's parent
 			// directory before writing - if it didn't already exist (a very
 			// likely first-run state for a path someone just typed into
