@@ -27,6 +27,13 @@ import { resolve, parse, relative, isAbsolute } from "node:path";
 
 const BASE_PATH = ".";
 const METHOD_SAVE = "save";
+// SingleFile's companion.js sends this for auto-save (Options > Auto-save >
+// "Save with SingleFile Companion") instead of a manual save. Same wire
+// shape ({ method, pageData }) over the same sendNativeMessage call - this
+// program previously only recognized "save", so an externalSave request
+// silently fell through processMessage doing nothing: no save attempted,
+// and even after the explicit-response fix above, still no response sent.
+const METHOD_EXTERNAL_SAVE = "externalSave";
 const DOWNLOADS_PATH = "./WebArchives/";
 const OPTIONS_FILE_PATH = "./options.json";
 // Native messaging length header: 4 bytes, native byte order. Every target
@@ -84,7 +91,7 @@ async function main(): Promise<void> {
 export async function processMessage(reader: Reader, options: Options, output: Writer): Promise<void> {
 	try {
 		const message = await parseMessage(reader);
-		if (message && message.method == METHOD_SAVE) {
+		if (message && (message.method == METHOD_SAVE || message.method == METHOD_EXTERNAL_SAVE)) {
 			await savePage(message.pageData, options);
 			await writeResponse({}, output);
 		}

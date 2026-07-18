@@ -259,3 +259,23 @@ Deno.test("processMessage writes an error response when the save fails", () =>
 		const body = JSON.parse(new TextDecoder().decode(chunks[1]));
 		assert.ok(String(body.error).length > 0);
 	}));
+
+// SingleFile sends method "externalSave" instead of "save" for auto-save via
+// Companion (src/core/bg/companion.js's externalSave(), used from
+// autosave.js). Same wire shape, different method string - this used to be
+// silently ignored entirely (no save attempted, no response either way).
+Deno.test("processMessage also handles method \"externalSave\" (auto-save)", () =>
+	withTempCwd(async (dir) => {
+		const payload = encodeMessage({ method: "externalSave", pageData: { filename: "auto.html", content: "hi" } });
+		const reader = bufferReader(payload);
+		const options: Options = { savePath: "./out/" };
+		const { writer, chunks } = collectingWriter();
+
+		await processMessage(reader, options, writer);
+
+		const written = await Deno.readTextFile(join(dir, "out", "auto.html"));
+		assert.equal(written, "hi");
+		assert.equal(chunks.length, 2);
+		const body = JSON.parse(new TextDecoder().decode(chunks[1]));
+		assert.equal(body.error, undefined);
+	}));
