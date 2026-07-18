@@ -22,29 +22,63 @@ Every release is built from source by [GitHub Actions](.github/workflows/release
 
 - Unzip the file in an empty folder somewhere on your disk and run `install`
 - Note: for *nix installs, you will need to `chmod +x` the `install`, `uninstall`, and `singlefile_companion_lite` files
+- Note: `install` records this folder's path into the browser's native messaging registration, so don't move or delete it afterwards - if you need to relocate it, run `uninstall`, move the folder, then run `install` again from the new location
 
 - Enable the option `Destination > save with SingleFile Companion` in SingleFile
 
-By default, pages are saved in the `./WebArchives/` folder.
+By default, pages are saved in the `WebArchives` folder created next to the binary (see [Options](#options) below for where that is and how to change it).
 
 ### Building from source instead
 
 If you'd rather not trust a prebuilt binary at all, build it yourself with [Deno](https://deno.land):
 
 ```bash
-deno compile --allow-read --allow-write --target x86_64-unknown-linux-gnu --output singlefile_companion_lite src/index.js
+deno compile --allow-read --allow-write --allow-env=HOME,USERPROFILE --target x86_64-unknown-linux-gnu --output singlefile_companion_lite src/index.ts
 ```
 
 (swap `--target` for `x86_64-pc-windows-msvc` or `x86_64-apple-darwin` on other platforms). This is exactly what `build.sh` and the release workflow run — no hidden steps.
 
+The source (`src/index.ts`) is TypeScript. Deno runs and compiles `.ts` files directly — there's no separate `tsc` build step; `deno compile` type-strips and bundles straight to a native binary.
+
 ## Options
 
-The `options.json` file allows configuring SingleFile Companion Lite. Here are
-the entries you can edit:
+The `options.json` file allows configuring SingleFile Companion Lite. It's the
+copy that sits in the same folder you unzipped the release into and ran
+`install` from - right next to the `singlefile_companion_lite` binary, not
+anywhere in the browser's own profile or extension folder, and **not** the
+`src/options.json` in this source repo either (that copy is only a template -
+it gets bundled into the release zips at build time, but editing it after
+the fact has no effect on an already-installed instance).
 
-- `savePath`: path where to save files (default: `./WebArchives/`)
-- `errorFilePath`: path of the file where errors are stored (default:
-  `undefined`)
+`options.json` and any relative `savePath`/`errorFilePath` inside it are
+always resolved against the folder the `singlefile_companion_lite` binary
+itself lives in, regardless of what working directory the browser happens to
+launch it with. This is deliberate: Chrome's native messaging docs guarantee
+the host process's working directory is set to the binary's own folder, but
+[Mozilla's docs](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Native_messaging)
+make no such promise for Firefox - in practice the spawned process can
+simply inherit Firefox's own working directory (commonly your home
+directory, if Firefox was launched from a desktop environment rather than a
+terminal), which silently breaks any relative path in `options.json`.
+Resolving against the binary's own location instead sidesteps the
+difference entirely.
+
+Edit it with any text editor and save - there's no install step to re-run and
+no need to restart the browser. Each save spawns a fresh instance of the
+program, so it reads the current `options.json` from disk every time. If
+changes still don't seem to take effect, double check you're editing the
+`options.json` next to the binary your browser is actually configured to
+run, not a copy elsewhere on disk.
+
+Entries you can edit:
+
+- `savePath`: path where to save files, relative to the install folder unless
+  you give it an absolute path (default: `./WebArchives/`). A leading `~` or
+  `~/` is expanded to your home directory, same as a shell would.
+- `errorFilePath`: path of the file where errors are logged, same relative-to-
+  install-folder rule and `~` expansion (default: unset - errors go to stderr
+  instead, which is typically not visible since the browser doesn't show this
+  process's output)
 
 ## Releasing (maintainers)
 

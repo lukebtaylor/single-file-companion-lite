@@ -19,7 +19,7 @@ jobs:
       exists: ${{ steps.check.outputs.exists }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Read version from package.json
         id: version
@@ -37,8 +37,27 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-  build:
+  test:
     needs: check
+    if: needs.check.outputs.exists == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check
+        run: deno check src/index.ts src/index.test.ts
+
+      - name: Run tests
+        run: deno test --allow-read --allow-write --allow-env=HOME,USERPROFILE
+
+  build:
+    needs: [check, test]
     if: needs.check.outputs.exists == 'false'
     runs-on: ubuntu-latest
     strategy:
@@ -55,7 +74,7 @@ jobs:
             ext: ""
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Deno
         uses: denoland/setup-deno@v2
@@ -67,16 +86,16 @@ jobs:
 
       - name: Compile binary for ${{ matrix.dir }}
         run: |
-          deno compile --allow-read --allow-write \
+          deno compile --allow-read --allow-write --allow-env=HOME,USERPROFILE \
             --target ${{ matrix.target }} \
             --output ./src/${{ matrix.dir }}/singlefile_companion_lite${{ matrix.ext }} \
-            ./src/index.js
+            ./src/index.ts
 
       - name: Zip installer bundles for ${{ matrix.dir }}
         run: |
           mkdir -p install
           for browser in chromium firefox; do
-            zip -j "install/${browser}-${{ matrix.dir }}.zip" \
+            zip -9 -j "install/${browser}-${{ matrix.dir }}.zip" \
               "./src/${{ matrix.dir }}/singlefile_companion_lite${{ matrix.ext }}" \
               ./src/options.json \
               ./src/${{ matrix.dir }}/${browser}/*
