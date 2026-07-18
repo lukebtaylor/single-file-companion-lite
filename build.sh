@@ -17,14 +17,6 @@ for entry in $targets; do
 
   deno compile --allow-read --allow-write --target "$target" --output "$bin" ./src/index.ts
 
-  # Same as CI: UPX only supports linux/win here (its macOS/Mach-O support is
-  # broken and produces binaries that won't launch). Best-effort locally -
-  # don't fail the whole build just because a contributor doesn't have upx
-  # installed; CI is what actually gates releases.
-  if [ "$dir" != "mac" ] && command -v upx >/dev/null 2>&1; then
-    upx --best "$bin"
-  fi
-
   for browser in chromium firefox; do
     zip -9 -j "install/${browser}-${dir}.zip" "$bin" ./src/options.json "./src/${dir}/${browser}"/*
   done
