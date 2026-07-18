@@ -95,7 +95,7 @@ jobs:
         run: |
           mkdir -p install
           for browser in chromium firefox; do
-            zip -j "install/${browser}-${{ matrix.dir }}.zip" \
+            zip -9 -j "install/${browser}-${{ matrix.dir }}.zip" \
               "./src/${{ matrix.dir }}/singlefile_companion_lite${{ matrix.ext }}" \
               ./src/options.json \
               ./src/${{ matrix.dir }}/${browser}/*

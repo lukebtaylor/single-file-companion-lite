@@ -18,6 +18,6 @@ for entry in $targets; do
   deno compile --allow-read --allow-write --target "$target" --output "$bin" ./src/index.ts
 
   for browser in chromium firefox; do
-    zip -j "install/${browser}-${dir}.zip" "$bin" ./src/options.json "./src/${dir}/${browser}"/*
+    zip -9 -j "install/${browser}-${dir}.zip" "$bin" ./src/options.json "./src/${dir}/${browser}"/*
   done
 done
