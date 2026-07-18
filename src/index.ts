@@ -173,11 +173,22 @@ export async function handleError(error: Error, options: Options, output: Writer
 	await writeResponse({ error: error.toString() }, output);
 }
 
+// output.write() may write fewer bytes than it's given, same as
+// reader.read() may read fewer than requested (see readExact() above) - the
+// Writer contract makes no stronger guarantee. Loop until everything is
+// actually written instead of assuming one call flushes the whole buffer.
+async function writeExact(output: Writer, data: Uint8Array): Promise<void> {
+	let bytesWritten = 0;
+	while (bytesWritten < data.length) {
+		bytesWritten += await output.write(data.subarray(bytesWritten));
+	}
+}
+
 // Shared native-messaging response writer: 4-byte little-endian length
 // header followed by the JSON body, used for both the success ack and the
 // error response so the wire format can't drift between the two paths.
 export async function writeResponse(payload: Record<string, unknown>, output: Writer): Promise<void> {
 	const bytes = new TextEncoder().encode(JSON.stringify(payload));
-	await output.write(new Uint8Array(new Uint32Array([bytes.length]).buffer));
-	await output.write(bytes);
+	await writeExact(output, new Uint8Array(new Uint32Array([bytes.length]).buffer));
+	await writeExact(output, bytes);
 }

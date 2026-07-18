@@ -32,6 +32,28 @@ function chunkedReader(chunks: Uint8Array[]): Reader {
 	};
 }
 
+// An in-memory Reader that serves a single flat buffer, correctly handling
+// reads of any size across multiple calls (unlike chunkedReader above, which
+// intentionally hands out one fixed-size array element per call and is not
+// meant to be fed a single chunk larger than a single read request - doing
+// that would silently drop everything past the first read's length). Use
+// this whenever the exact byte-boundaries of individual read() calls don't
+// matter and the goal is just "deliver this whole message correctly".
+function bufferReader(data: Uint8Array): Reader {
+	let offset = 0;
+	return {
+		read(p: Uint8Array): Promise<number | null> {
+			if (offset >= data.length) {
+				return Promise.resolve(null);
+			}
+			const n = Math.min(data.length - offset, p.length);
+			p.set(data.subarray(offset, offset + n));
+			offset += n;
+			return Promise.resolve(n);
+		},
+	};
+}
+
 function collectingWriter(): { writer: Writer; chunks: Uint8Array[] } {
 	const chunks: Uint8Array[] = [];
 	return {
@@ -205,7 +227,7 @@ Deno.test("handleError writes a correctly length-prefixed JSON error", async () 
 Deno.test("processMessage writes a success response (no .error) after a successful save", () =>
 	withTempCwd(async (dir) => {
 		const payload = encodeMessage({ method: "save", pageData: { filename: "page.html", content: "hi" } });
-		const reader = chunkedReader([payload]);
+		const reader = bufferReader(payload);
 		const options: Options = { savePath: "./out/" };
 		const { writer, chunks } = collectingWriter();
 
@@ -223,7 +245,7 @@ Deno.test("processMessage writes a success response (no .error) after a successf
 Deno.test("processMessage writes an error response when the save fails", () =>
 	withTempCwd(async () => {
 		const payload = encodeMessage({ method: "save", pageData: { filename: "../escape.html", content: "x" } });
-		const reader = chunkedReader([payload]);
+		const reader = bufferReader(payload);
 		const options: Options = { savePath: "./out/" };
 		const originalConsoleError = console.error;
 		console.error = () => {};
