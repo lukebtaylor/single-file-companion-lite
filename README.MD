@@ -22,10 +22,11 @@ Every release is built from source by [GitHub Actions](.github/workflows/release
 
 - Unzip the file in an empty folder somewhere on your disk and run `install`
 - Note: for *nix installs, you will need to `chmod +x` the `install`, `uninstall`, and `singlefile_companion_lite` files
+- Note: `install` records this folder's path into the browser's native messaging registration, so don't move or delete it afterwards - if you need to relocate it, run `uninstall`, move the folder, then run `install` again from the new location
 
 - Enable the option `Destination > save with SingleFile Companion` in SingleFile
 
-By default, pages are saved in the `./WebArchives/` folder.
+By default, pages are saved in the `WebArchives` folder created next to the binary (see [Options](#options) below for where that is and how to change it).
 
 ### Building from source instead
 
@@ -41,12 +42,24 @@ The source (`src/index.ts`) is TypeScript. Deno runs and compiles `.ts` files di
 
 ## Options
 
-The `options.json` file allows configuring SingleFile Companion Lite. Here are
-the entries you can edit:
+The `options.json` file allows configuring SingleFile Companion Lite. It's the
+copy that sits in the same folder you unzipped the release into and ran
+`install` from - right next to the `singlefile_companion_lite` binary, not
+anywhere in the browser's own profile or extension folder. Chrome and Firefox
+both start native messaging hosts with their working directory set to that
+folder, which is also why the paths below are relative to it.
 
-- `savePath`: path where to save files (default: `./WebArchives/`)
-- `errorFilePath`: path of the file where errors are stored (default:
-  `undefined`)
+Edit it with any text editor and save - there's no install step to re-run and
+no need to restart the browser. Each save spawns a fresh instance of the
+program, so it reads the current `options.json` from disk every time.
+
+Entries you can edit:
+
+- `savePath`: path where to save files, relative to the install folder unless
+  you give it an absolute path (default: `./WebArchives/`)
+- `errorFilePath`: path of the file where errors are logged, same relative-to-
+  install-folder rule (default: unset - errors go to stderr instead, which is
+  typically not visible since the browser doesn't show this process's output)
 
 ## Releasing (maintainers)
 
