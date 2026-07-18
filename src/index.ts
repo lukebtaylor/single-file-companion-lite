@@ -23,7 +23,7 @@
  *   Source.
  */
 
-import { resolve, parse, relative, isAbsolute } from "@std/path";
+import { resolve, parse, relative, isAbsolute } from "node:path";
 
 const BASE_PATH = ".";
 const METHOD_SAVE = "save";
