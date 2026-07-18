@@ -34,22 +34,36 @@ const OPTIONS_FILE_PATH = "./options.json";
 // little-endian, so we read it as such explicitly below.
 const HEADER_SIZE = 4;
 
-interface Options {
+export interface Options {
 	savePath?: string;
 	errorFilePath?: string;
 }
 
-interface PageData {
+export interface PageData {
 	filename: string;
 	content: string;
 }
 
-interface Message {
+export interface Message {
 	method: string;
 	pageData: PageData;
 }
 
-main();
+// Minimal local interfaces instead of depending on Deno.Reader/Deno.Writer -
+// Deno.stdin/Deno.stdout satisfy these structurally, and tests can pass in
+// their own in-memory implementations without relying on Deno's own
+// (sometimes-deprecated) global reader/writer type aliases.
+export interface Reader {
+	read(p: Uint8Array): Promise<number | null>;
+}
+
+export interface Writer {
+	write(p: Uint8Array): Promise<number>;
+}
+
+if (import.meta.main) {
+	main();
+}
 
 async function main(): Promise<void> {
 	const options = await parseOptions();
@@ -63,7 +77,7 @@ async function main(): Promise<void> {
 	}
 }
 
-async function parseOptions(): Promise<Options> {
+export async function parseOptions(): Promise<Options> {
 	try {
 		return JSON.parse(await Deno.readTextFile(resolve(BASE_PATH, OPTIONS_FILE_PATH))) as Options;
 	} catch (_error) {
@@ -71,20 +85,20 @@ async function parseOptions(): Promise<Options> {
 	}
 }
 
-// Deno.stdin.read() may return fewer bytes than the buffer it's given - a
+// reader.read() may return fewer bytes than the buffer it's given - a
 // single call is not guaranteed to fill it, especially over the pipes
 // native messaging uses (this was the root cause of saves silently doing
 // nothing: a short read on the 4-byte length header produced a garbage or
 // zero message size, so the whole message was dropped without error).
 // This loops until the requested number of bytes is read, or the stream
 // ends early, in which case it returns null instead of a truncated buffer.
-async function readExact(size: number): Promise<Uint8Array | null> {
+export async function readExact(reader: Reader, size: number): Promise<Uint8Array | null> {
 	const buffer = new Uint8Array(size);
 	let bytesRead = 0;
 	while (bytesRead < size) {
-		const result = await Deno.stdin.read(buffer.subarray(bytesRead));
+		const result = await reader.read(buffer.subarray(bytesRead));
 		if (result === null) {
-			// stdin closed before we received everything we expected
+			// stream closed before we received everything we expected
 			return null;
 		}
 		bytesRead += result;
@@ -92,20 +106,20 @@ async function readExact(size: number): Promise<Uint8Array | null> {
 	return buffer;
 }
 
-async function parseMessage(): Promise<Message | undefined> {
-	const headerBuffer = await readExact(HEADER_SIZE);
+export async function parseMessage(reader: Reader = Deno.stdin): Promise<Message | undefined> {
+	const headerBuffer = await readExact(reader, HEADER_SIZE);
 	if (!headerBuffer) {
 		return undefined;
 	}
 	const messageSize = new DataView(headerBuffer.buffer, headerBuffer.byteOffset, headerBuffer.byteLength).getUint32(0, true);
-	const messageBuffer = await readExact(messageSize);
+	const messageBuffer = await readExact(reader, messageSize);
 	if (!messageBuffer) {
 		return undefined;
 	}
 	return JSON.parse(new TextDecoder().decode(messageBuffer)) as Message;
 }
 
-async function savePage(pageData: PageData, options: Options): Promise<void> {
+export async function savePage(pageData: PageData, options: Options): Promise<void> {
 	const savePath = resolve(BASE_PATH, options.savePath || DOWNLOADS_PATH);
 	const targetPath = resolve(savePath, pageData.filename);
 	// pageData.filename comes from the browser extension (ultimately derived
@@ -129,7 +143,7 @@ async function savePage(pageData: PageData, options: Options): Promise<void> {
 	await Deno.writeTextFile(targetPath, pageData.content);
 }
 
-async function handleError(error: Error, options: Options): Promise<void> {
+export async function handleError(error: Error, options: Options, output: Writer = Deno.stdout): Promise<void> {
 	if (options.errorFilePath) {
 		const message = error.message + "\n" + error.stack + "\n";
 		await Deno.writeTextFile(resolve(BASE_PATH, options.errorFilePath), message, { append: true });
@@ -141,6 +155,6 @@ async function handleError(error: Error, options: Options): Promise<void> {
 		console.error(error.message + "\n" + error.stack);
 	}
 	const errorMessage = new TextEncoder().encode(JSON.stringify({ error: error.toString() }));
-	await Deno.stdout.write(new Uint8Array(new Uint32Array([errorMessage.length]).buffer));
-	await Deno.stdout.write(errorMessage);
+	await output.write(new Uint8Array(new Uint32Array([errorMessage.length]).buffer));
+	await output.write(errorMessage);
 }
