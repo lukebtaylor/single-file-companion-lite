@@ -9,21 +9,33 @@ to communicate with [SingleFile](https://www.getsinglefile.com).
 
 ## Install
 
-- Download the zip file corresponding to your OS and your browser:
+Binaries are no longer committed to this repository. Every tagged release is built from source by [GitHub Actions](.github/workflows/release.yml) and published as release assets, so what you download is traceable to a specific commit and build log instead of an untracked binary blob in git history.
 
-  - Chrome, Linux: [`chromium-linux.zip`](install/chromium-linux.zip)
-  - Chrome, Windows: [`chromium-win.zip`](install/chromium-win.zip)
-  - Chrome, macOS: [`chromium-mac.zip`](install/chromium-mac.zip)
-  - Firefox, Linux: [`firefox-linux.zip`](install/firefox-linux.zip)
-  - Firefox, Windows: [`firefox-win.zip`](install/firefox-win.zip)
-  - Firefox, macOS: [`firefox-mac.zip`](install/firefox-mac.zip)
+- Grab the zip file corresponding to your OS and your browser from the [latest release](../../releases/latest):
 
-- Unzip the file in an empty folder somewhere on your disk an run `install`
-- Note: for *nix installs, you will need to 'chmod +x' for the install, uninstall, and SingleFileCompanionLite executables
+  - Chrome, Linux: `chromium-linux.zip`
+  - Chrome, Windows: `chromium-win.zip`
+  - Chrome, macOS: `chromium-mac.zip`
+  - Firefox, Linux: `firefox-linux.zip`
+  - Firefox, Windows: `firefox-win.zip`
+  - Firefox, macOS: `firefox-mac.zip`
+
+- Unzip the file in an empty folder somewhere on your disk and run `install`
+- Note: for *nix installs, you will need to `chmod +x` the `install`, `uninstall`, and `singlefile_companion_lite` files
 
 - Enable the option `Destination > save with SingleFile Companion` in SingleFile
 
 By default, pages are saved in the `./WebArchives/` folder.
+
+### Building from source instead
+
+If you'd rather not trust a prebuilt binary at all, build it yourself with [Deno](https://deno.land):
+
+```bash
+deno compile --allow-read --allow-write --target x86_64-unknown-linux-gnu --output singlefile_companion_lite src/index.js
+```
+
+(swap `--target` for `x86_64-pc-windows-msvc` or `x86_64-apple-darwin` on other platforms). This is exactly what `build.sh` and the release workflow run — no hidden steps.
 
 ## Options
 

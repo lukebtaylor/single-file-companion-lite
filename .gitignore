@@ -1,1 +1,7 @@
 .vscode
+
+# Build outputs - built by CI and attached to GitHub Releases, not committed
+install/*.zip
+src/linux/singlefile_companion_lite
+src/mac/singlefile_companion_lite
+src/win/singlefile_companion_lite.exe

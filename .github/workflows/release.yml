@@ -1,0 +1,51 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install zip
+        run: sudo apt-get update && sudo apt-get install -y zip
+
+      - name: Build binaries and installer bundles
+        run: ./build.sh
+
+      - name: Verify expected bundles exist
+        run: |
+          set -e
+          for f in chromium-linux chromium-mac chromium-win firefox-linux firefox-mac firefox-win; do
+            test -f "install/${f}.zip" || { echo "Missing install/${f}.zip"; exit 1; }
+          done
+
+      - name: Upload build artifacts (every run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-bundles
+          path: install/*.zip
+          retention-days: 14
+
+      - name: Create GitHub Release (tag pushes only)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" install/*.zip \
+            --title "${{ github.ref_name }}" \
+            --generate-notes
