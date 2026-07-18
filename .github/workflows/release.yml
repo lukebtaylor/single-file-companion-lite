@@ -54,7 +54,7 @@ jobs:
         run: deno check src/index.ts src/index.test.ts
 
       - name: Run tests
-        run: deno test --allow-read --allow-write
+        run: deno test --allow-read --allow-write --allow-env=HOME,USERPROFILE
 
   build:
     needs: [check, test]
@@ -86,7 +86,7 @@ jobs:
 
       - name: Compile binary for ${{ matrix.dir }}
         run: |
-          deno compile --allow-read --allow-write \
+          deno compile --allow-read --allow-write --allow-env=HOME,USERPROFILE \
             --target ${{ matrix.target }} \
             --output ./src/${{ matrix.dir }}/singlefile_companion_lite${{ matrix.ext }} \
             ./src/index.ts

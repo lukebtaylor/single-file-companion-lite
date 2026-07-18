@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { join, resolve } from "node:path";
 import {
+	expandHome,
 	handleError,
 	type Options,
 	parseMessage,
@@ -11,6 +12,23 @@ import {
 	savePage,
 	type Writer,
 } from "./index.ts";
+
+// expandHome() reads HOME (or USERPROFILE) to resolve "~" - stub it for the
+// duration of a test so assertions don't depend on whatever HOME happens to
+// be set to wherever tests are run, then restore whatever was there before.
+async function withHome(home: string, fn: () => Promise<void>): Promise<void> {
+	const original = Deno.env.get("HOME");
+	Deno.env.set("HOME", home);
+	try {
+		await fn();
+	} finally {
+		if (original === undefined) {
+			Deno.env.delete("HOME");
+		} else {
+			Deno.env.set("HOME", original);
+		}
+	}
+}
 
 // An in-memory Reader that hands back the given chunks one read() call at a
 // time - including chunks as small as a single byte - to simulate a stdin
@@ -176,6 +194,37 @@ Deno.test("parseOptions reads savePath and errorFilePath", () =>
 		assert.equal(options.errorFilePath, "./err.log");
 	}));
 
+// "~" for the home directory is a shell convention that Deno.readTextFile()/
+// node:path's resolve() don't understand on their own - "~/err" used to
+// resolve to a literal "~" directory next to the binary instead of the
+// user's home. expandHome() (called from parseOptions()) fixes that.
+Deno.test("expandHome expands a bare ~ to $HOME", () =>
+	withHome("/home/testuser", async () => {
+		assert.equal(expandHome("~"), "/home/testuser");
+	}));
+
+Deno.test("expandHome expands ~/-prefixed paths to $HOME", () =>
+	withHome("/home/testuser", async () => {
+		assert.equal(expandHome("~/WebArchives/err.log"), "/home/testuser/WebArchives/err.log");
+	}));
+
+Deno.test("expandHome leaves paths without a leading ~ untouched", () => {
+	assert.equal(expandHome("./WebArchives/"), "./WebArchives/");
+	assert.equal(expandHome("/abs/path"), "/abs/path");
+});
+
+Deno.test("parseOptions expands ~ in savePath and errorFilePath", () =>
+	withTempCwd((dir) =>
+		withHome("/home/testuser", async () => {
+			await Deno.writeTextFile(
+				join(dir, "options.json"),
+				JSON.stringify({ savePath: "~/Archives", errorFilePath: "~/err.log" }),
+			);
+			const options = await parseOptions();
+			assert.equal(options.savePath, "/home/testuser/Archives");
+			assert.equal(options.errorFilePath, "/home/testuser/err.log");
+		})));
+
 Deno.test("handleError writes to errorFilePath when configured", () =>
 	withTempCwd(async (dir) => {
 		const options: Options = { errorFilePath: "./err.log" };
@@ -183,6 +232,46 @@ Deno.test("handleError writes to errorFilePath when configured", () =>
 		await handleError(new Error("boom"), options, writer);
 		const logged = await Deno.readTextFile(join(dir, "err.log"));
 		assert.ok(logged.includes("boom"));
+	}));
+
+// Regression test: handleError() used to call Deno.writeTextFile() on
+// errorFilePath without ever creating its parent directory first (unlike
+// savePage(), which does). The very first time someone points errorFilePath
+// at a path whose directory doesn't exist yet - the common case, since
+// nothing else creates it - that write threw ENOENT *inside* handleError(),
+// uncaught, which skipped writeResponse() entirely: no error logged
+// anywhere visible, and no response sent to the browser either.
+Deno.test("handleError creates errorFilePath's parent directory if missing", () =>
+	withTempCwd(async (dir) => {
+		const options: Options = { errorFilePath: "./logs/nested/err.log" };
+		const { writer, chunks } = collectingWriter();
+		await handleError(new Error("boom"), options, writer);
+		const logged = await Deno.readTextFile(join(dir, "logs", "nested", "err.log"));
+		assert.ok(logged.includes("boom"));
+		assert.equal(chunks.length, 2);
+	}));
+
+Deno.test("handleError still sends a response even if writing errorFilePath itself fails", () =>
+	withTempCwd(async (dir) => {
+		// Put a *file* where errorFilePath needs a *directory*, so the mkdir
+		// inside handleError's own error-logging attempt is guaranteed to fail.
+		await Deno.writeTextFile(join(dir, "blocked"), "");
+		const options: Options = { errorFilePath: "./blocked/err.log" };
+		const originalConsoleError = console.error;
+		let loggedToStderr = false;
+		console.error = () => {
+			loggedToStderr = true;
+		};
+		const { writer, chunks } = collectingWriter();
+		try {
+			await handleError(new Error("boom"), options, writer);
+		} finally {
+			console.error = originalConsoleError;
+		}
+		assert.ok(loggedToStderr);
+		assert.equal(chunks.length, 2);
+		const body = JSON.parse(new TextDecoder().decode(chunks[1]));
+		assert.ok(String(body.error).includes("boom"));
 	}));
 
 Deno.test("handleError falls back to console.error when errorFilePath is unset", async () => {

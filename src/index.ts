@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-write --allow-read
+#!/usr/bin/env -S deno run --allow-write --allow-read --allow-env=HOME,USERPROFILE
 
 /*
  * Copyright 2022 Gildas Lormeau
@@ -95,10 +95,34 @@ export async function processMessage(reader: Reader, options: Options, output: W
 
 export async function parseOptions(): Promise<Options> {
 	try {
-		return JSON.parse(await Deno.readTextFile(resolve(BASE_PATH, OPTIONS_FILE_PATH))) as Options;
+		const options = JSON.parse(await Deno.readTextFile(resolve(BASE_PATH, OPTIONS_FILE_PATH))) as Options;
+		if (options.savePath) {
+			options.savePath = expandHome(options.savePath);
+		}
+		if (options.errorFilePath) {
+			options.errorFilePath = expandHome(options.errorFilePath);
+		}
+		return options;
 	} catch (_error) {
 		return {};
 	}
+}
+
+// options.json is hand-edited, and a leading "~" for the home directory is a
+// shell convention - Deno.readTextFile()/node:path's resolve() don't know
+// about it, so "~/WebArchives" would otherwise resolve to a literal "~"
+// directory next to the binary instead of the user's home. Expand it the
+// same way a shell would before any options.json path is used for anything.
+export function expandHome(path: string): string {
+	const isTilde = path === "~" || path.startsWith("~/") || (Deno.build.os === "windows" && path.startsWith("~\\"));
+	if (!isTilde) {
+		return path;
+	}
+	const home = Deno.env.get("HOME") ?? Deno.env.get("USERPROFILE");
+	if (!home) {
+		return path;
+	}
+	return path === "~" ? home : home + path.slice(1);
 }
 
 // reader.read() may return fewer bytes than the buffer it's given - a
@@ -162,7 +186,26 @@ export async function savePage(pageData: PageData, options: Options): Promise<vo
 export async function handleError(error: Error, options: Options, output: Writer = Deno.stdout): Promise<void> {
 	if (options.errorFilePath) {
 		const message = error.message + "\n" + error.stack + "\n";
-		await Deno.writeTextFile(resolve(BASE_PATH, options.errorFilePath), message, { append: true });
+		try {
+			const errorFilePath = resolve(BASE_PATH, options.errorFilePath);
+			// Unlike savePage(), this never created errorFilePath's parent
+			// directory before writing - if it didn't already exist (a very
+			// likely first-run state for a path someone just typed into
+			// options.json), Deno.writeTextFile() threw ENOENT here,
+			// uncaught, which skipped the writeResponse() call below
+			// entirely. The browser then got no response and no error, and
+			// the *original* error this function exists to report never
+			// reached errorFilePath, stderr, or anywhere else visible.
+			await Deno.mkdir(parse(errorFilePath).dir, { recursive: true });
+			await Deno.writeTextFile(errorFilePath, message, { append: true });
+		} catch (loggingError) {
+			// Writing the error log is itself best-effort - if it fails
+			// (bad path, permissions, disk full), fall back to stderr for
+			// the original error rather than losing it, and keep going so
+			// writeResponse() below still runs unconditionally.
+			console.error("Failed to write errorFilePath:", loggingError);
+			console.error(error.message + "\n" + error.stack);
+		}
 	} else {
 		// No errorFilePath is configured by default. Without this, a failed
 		// save has zero visible trace anywhere on disk - write to stderr as a

@@ -15,7 +15,7 @@ for entry in $targets; do
   [ "$dir" = "win" ] && ext=".exe"
   bin="./src/${dir}/singlefile_companion_lite${ext}"
 
-  deno compile --allow-read --allow-write --target "$target" --output "$bin" ./src/index.ts
+  deno compile --allow-read --allow-write --allow-env=HOME,USERPROFILE --target "$target" --output "$bin" ./src/index.ts
 
   for browser in chromium firefox; do
     zip -9 -j "install/${browser}-${dir}.zip" "$bin" ./src/options.json "./src/${dir}/${browser}"/*
