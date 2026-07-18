@@ -70,7 +70,7 @@ jobs:
           deno compile --allow-read --allow-write \
             --target ${{ matrix.target }} \
             --output ./src/${{ matrix.dir }}/singlefile_companion_lite${{ matrix.ext }} \
-            ./src/index.js
+            ./src/index.ts
 
       - name: Zip installer bundles for ${{ matrix.dir }}
         run: |

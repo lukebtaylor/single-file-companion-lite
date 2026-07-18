@@ -32,10 +32,12 @@ By default, pages are saved in the `./WebArchives/` folder.
 If you'd rather not trust a prebuilt binary at all, build it yourself with [Deno](https://deno.land):
 
 ```bash
-deno compile --allow-read --allow-write --target x86_64-unknown-linux-gnu --output singlefile_companion_lite src/index.js
+deno compile --allow-read --allow-write --target x86_64-unknown-linux-gnu --output singlefile_companion_lite src/index.ts
 ```
 
 (swap `--target` for `x86_64-pc-windows-msvc` or `x86_64-apple-darwin` on other platforms). This is exactly what `build.sh` and the release workflow run — no hidden steps.
+
+The source (`src/index.ts`) is TypeScript. Deno runs and compiles `.ts` files directly — there's no separate `tsc` build step; `deno compile` type-strips and bundles straight to a native binary.
 
 ## Options
 
