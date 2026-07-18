@@ -1,4 +1,6 @@
 #!/bin/sh
+set -e
+mkdir -p install
 rm -rf install/*
 
 deno compile --allow-read --allow-write --target x86_64-unknown-linux-gnu --output ./src/linux/singlefile_companion_lite ./src/index.js
