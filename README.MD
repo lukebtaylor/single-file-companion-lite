@@ -45,3 +45,11 @@ the entries you can edit:
 - `savePath`: path where to save files (default: `./WebArchives/`)
 - `errorFilePath`: path of the file where errors are stored (default:
   `undefined`)
+
+## Releasing (maintainers)
+
+Releases are driven entirely by `package.json`'s `version` field — no manual tagging, no separate version file to keep in sync.
+
+1. Bump `version` in `package.json` (e.g. `0.0.1` → `0.0.2`) and merge that change to `main` (normal PR, same as any other change).
+2. [`.github/workflows/release.yml`](.github/workflows/release.yml) triggers on any push to `main` that touches `package.json`, checks whether a release for that version already exists, and if not: builds the binaries, zips the installer bundles, tags the commit `v<version>`, and publishes a GitHub Release with all 6 bundles attached — all automatically.
+3. Pushing to `main` without changing `version` does nothing (the existing-release check short-circuits the job before it builds anything), so routine commits don't trigger spurious releases.

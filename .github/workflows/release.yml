@@ -2,50 +2,74 @@ name: Build and Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+    paths:
+      - package.json
   workflow_dispatch: {}
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read version from package.json
+        id: version
+        run: echo "tag=v$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether this version is already released
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Already released - nothing to do."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Deno
+        if: steps.check.outputs.exists == 'false'
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
 
       - name: Install zip
+        if: steps.check.outputs.exists == 'false'
         run: sudo apt-get update && sudo apt-get install -y zip
 
       - name: Build binaries and installer bundles
+        if: steps.check.outputs.exists == 'false'
         run: ./build.sh
 
       - name: Verify expected bundles exist
+        if: steps.check.outputs.exists == 'false'
         run: |
           set -e
           for f in chromium-linux chromium-mac chromium-win firefox-linux firefox-mac firefox-win; do
             test -f "install/${f}.zip" || { echo "Missing install/${f}.zip"; exit 1; }
           done
 
-      - name: Upload build artifacts (every run)
+      - name: Upload build artifacts (every run this actually builds)
+        if: steps.check.outputs.exists == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: installer-bundles
           path: install/*.zip
           retention-days: 14
 
-      - name: Create GitHub Release (tag pushes only)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Create tag and GitHub Release
+        if: steps.check.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" install/*.zip \
-            --title "${{ github.ref_name }}" \
+          gh release create "${{ steps.version.outputs.tag }}" install/*.zip \
+            --title "${{ steps.version.outputs.tag }}" \
+            --target "${{ github.sha }}" \
             --generate-notes
