@@ -108,11 +108,13 @@ async function parseMessage(): Promise<Message | undefined> {
 async function savePage(pageData: PageData, options: Options): Promise<void> {
 	const fileDirectory = parse(pageData.filename).dir;
 	const basePath = resolve(BASE_PATH, options.savePath || DOWNLOADS_PATH, fileDirectory);
-	try {
-		await Deno.mkdir(basePath, { recursive: true });
-	} catch (_error) {
-		// ignored
-	}
+	// Deno.mkdir({ recursive: true }) does not throw if the directory already
+	// exists, so there is nothing benign left to swallow here - any error
+	// (permission denied, a path segment that's too long, an invalid
+	// character, etc.) is real and must propagate to handleError() instead
+	// of being silently discarded, otherwise the save just does nothing with
+	// no feedback (see #6: long filenames failing silently).
+	await Deno.mkdir(basePath, { recursive: true });
 	await Deno.writeTextFile(resolve(basePath, relative(fileDirectory, pageData.filename)), pageData.content);
 }
 
@@ -120,6 +122,12 @@ async function handleError(error: Error, options: Options): Promise<void> {
 	if (options.errorFilePath) {
 		const message = error.message + "\n" + error.stack + "\n";
 		await Deno.writeTextFile(resolve(BASE_PATH, options.errorFilePath), message, { append: true });
+	} else {
+		// No errorFilePath is configured by default. Without this, a failed
+		// save has zero visible trace anywhere on disk - write to stderr as a
+		// fallback so at least a terminal/log capturing the process's output
+		// has a chance of showing what went wrong.
+		console.error(error.message + "\n" + error.stack);
 	}
 	const errorMessage = new TextEncoder().encode(JSON.stringify({ error: error.toString() }));
 	await Deno.stdout.write(new Uint8Array(new Uint32Array([errorMessage.length]).buffer));
