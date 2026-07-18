@@ -5,6 +5,7 @@ import {
 	type Options,
 	parseMessage,
 	parseOptions,
+	processMessage,
 	readExact,
 	type Reader,
 	savePage,
@@ -194,3 +195,45 @@ Deno.test("handleError writes a correctly length-prefixed JSON error", async () 
 	const body = JSON.parse(new TextDecoder().decode(chunks[1]));
 	assert.ok(String(body.error).includes("boom"));
 });
+
+// These two cover the actual bug report: a successful save produced no
+// response at all, and SingleFile's own companion.js only forgives a
+// response-less exit if the browser's disconnect message happens to contain
+// the Chrome-specific string "Native host has exited" - which isn't
+// guaranteed to hold on every browser. Sending an explicit response removes
+// that dependency entirely.
+Deno.test("processMessage writes a success response (no .error) after a successful save", () =>
+	withTempCwd(async (dir) => {
+		const payload = encodeMessage({ method: "save", pageData: { filename: "page.html", content: "hi" } });
+		const reader = chunkedReader([payload]);
+		const options: Options = { savePath: "./out/" };
+		const { writer, chunks } = collectingWriter();
+
+		await processMessage(reader, options, writer);
+
+		const written = await Deno.readTextFile(join(dir, "out", "page.html"));
+		assert.equal(written, "hi");
+		assert.equal(chunks.length, 2);
+		const length = new DataView(chunks[0].buffer, chunks[0].byteOffset, chunks[0].byteLength).getUint32(0, true);
+		assert.equal(length, chunks[1].length);
+		const body = JSON.parse(new TextDecoder().decode(chunks[1]));
+		assert.equal(body.error, undefined);
+	}));
+
+Deno.test("processMessage writes an error response when the save fails", () =>
+	withTempCwd(async () => {
+		const payload = encodeMessage({ method: "save", pageData: { filename: "../escape.html", content: "x" } });
+		const reader = chunkedReader([payload]);
+		const options: Options = { savePath: "./out/" };
+		const originalConsoleError = console.error;
+		console.error = () => {};
+		const { writer, chunks } = collectingWriter();
+		try {
+			await processMessage(reader, options, writer);
+		} finally {
+			console.error = originalConsoleError;
+		}
+		assert.equal(chunks.length, 2);
+		const body = JSON.parse(new TextDecoder().decode(chunks[1]));
+		assert.ok(String(body.error).length > 0);
+	}));

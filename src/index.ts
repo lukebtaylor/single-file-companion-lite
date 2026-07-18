@@ -67,13 +67,29 @@ if (import.meta.main) {
 
 async function main(): Promise<void> {
 	const options = await parseOptions();
+	await processMessage(Deno.stdin, options, Deno.stdout);
+}
+
+// SingleFile's companion.js only tolerates a host that exits without ever
+// responding if the browser's disconnect error text happens to contain the
+// substring "Native host has exited" - that's Chrome's specific wording.
+// Neither this program nor the original upstream version ever wrote a
+// success response; on Firefox (and potentially other browsers/versions),
+// the disconnect message is worded differently, that substring check fails,
+// and SingleFile surfaces a generic "An unexpected error occurred" even
+// though the save completed successfully. Sending an explicit response on
+// every path - success included - sidesteps that entirely: SingleFile only
+// throws if the response has a truthy `.error`, so any response without one
+// reads as success regardless of how a given browser phrases a clean exit.
+export async function processMessage(reader: Reader, options: Options, output: Writer): Promise<void> {
 	try {
-		const message = await parseMessage();
+		const message = await parseMessage(reader);
 		if (message && message.method == METHOD_SAVE) {
 			await savePage(message.pageData, options);
+			await writeResponse({}, output);
 		}
 	} catch (error) {
-		await handleError(error as Error, options);
+		await handleError(error as Error, options, output);
 	}
 }
 
@@ -154,7 +170,14 @@ export async function handleError(error: Error, options: Options, output: Writer
 		// has a chance of showing what went wrong.
 		console.error(error.message + "\n" + error.stack);
 	}
-	const errorMessage = new TextEncoder().encode(JSON.stringify({ error: error.toString() }));
-	await output.write(new Uint8Array(new Uint32Array([errorMessage.length]).buffer));
-	await output.write(errorMessage);
+	await writeResponse({ error: error.toString() }, output);
+}
+
+// Shared native-messaging response writer: 4-byte little-endian length
+// header followed by the JSON body, used for both the success ack and the
+// error response so the wire format can't drift between the two paths.
+export async function writeResponse(payload: Record<string, unknown>, output: Writer): Promise<void> {
+	const bytes = new TextEncoder().encode(JSON.stringify(payload));
+	await output.write(new Uint8Array(new Uint32Array([bytes.length]).buffer));
+	await output.write(bytes);
 }
