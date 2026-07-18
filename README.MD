@@ -53,9 +53,15 @@ the fact has no effect on an already-installed instance).
 `options.json` and any relative `savePath`/`errorFilePath` inside it are
 always resolved against the folder the `singlefile_companion_lite` binary
 itself lives in, regardless of what working directory the browser happens to
-launch it with - this doesn't rely on Chrome/Firefox's documented (but not
-always reliable in practice) behavior of setting that working directory to
-the binary's folder.
+launch it with. This is deliberate: Chrome's native messaging docs guarantee
+the host process's working directory is set to the binary's own folder, but
+[Mozilla's docs](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Native_messaging)
+make no such promise for Firefox - in practice the spawned process can
+simply inherit Firefox's own working directory (commonly your home
+directory, if Firefox was launched from a desktop environment rather than a
+terminal), which silently breaks any relative path in `options.json`.
+Resolving against the binary's own location instead sidesteps the
+difference entirely.
 
 Edit it with any text editor and save - there's no install step to re-run and
 no need to restart the browser. Each save spawns a fresh instance of the
