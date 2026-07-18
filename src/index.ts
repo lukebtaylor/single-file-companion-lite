@@ -23,7 +23,7 @@
  *   Source.
  */
 
-import { resolve, parse, relative } from "https://deno.land/std@0.175.0/path/mod.ts";
+import { resolve, parse, relative } from "@std/path";
 
 const BASE_PATH = ".";
 const BUFFER_SIZE = 1024 * 512;
